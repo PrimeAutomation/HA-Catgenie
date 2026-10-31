@@ -21,6 +21,50 @@ Also used directly:
 The integration was written from scratch. The sensor list follows the earlier
 PrimeAutomation integration, but no code was copied from it.
  
+## Operation states and error reporting
+
+The integration preserves integer operation states, including values the
+pinned client does not recognize. `0` is idle, `1` is cleaning, and other
+integers display as a generic error with the original `raw_state` retained.
+An unrecognized operation state does not supply a fault-specific diagnosis.
+The cleaning binary sensor is unknown for these states, not falsely off.
+
+The `operation_error` sensor prefers nonblank vendor error text. Otherwise,
+it describes the separate `activeErrors` list using these mappings:
+
+Observed on a CatGenie A.I. running firmware 8.7.205R:
+
+- **2 — Water fill issue.** Observed with operation state 2 and the same
+  description in the official app.
+- **5 — Cleaning solution cartridge missing.** Observed after removing the
+  SaniSolution cartridge while operation state remained 0 (idle).
+
+Derived from the CatGenie Android app 1.8.253, not reproduced on that unit:
+
+- **3 — Drainage issue** (`DRAINAGE_PROBLEM`).
+- **4 — Dryer overheating** (`BI_METAL`).
+- **6 — Cleaning solution cartridge empty** (`EMPTY_CARTRIDGE`).
+
+The app uses these definitions to interpret `activeErrors`, not just push
+notifications. See [app-derived code evidence](docs/error-code-provenance.md)
+for the enum/message path, archive version and reproducibility details.
+
+This is not a complete manufacturer error catalogue. Other active-error values
+stay explicitly unknown, and the raw list remains in `active_errors`. String,
+float and boolean lookalikes do not select the integer mappings.
+
+An online device explicitly reporting a normal operation state and an empty
+active-error list displays **No active errors**. Missing fields and offline
+devices do not become confirmed clear reports. An abnormal operation state
+without a message or active codes instead displays a generic error with its
+state number. A long error message is shortened to fit Home Assistant's
+255-character state limit, with its full text retained in `error_details`.
+Cards and automations should treat `No active errors` as normal, rather than
+interpreting every populated error-sensor value as a fault.
+
+This reporting does not change device commands, polling or recovery behavior.
+See [tests/README.md](tests/README.md) for the offline regression suite.
+
 ## Repository layout
  
 ```
@@ -33,7 +77,8 @@ catgenie-ha/
     ├── const.py           constants and polling intervals
     ├── config_flow.py     phone + SMS login, re-authentication
     ├── coordinator.py     polling and error handling
-    ├── client.py          client subclass that fixes a payload quirk
+    ├── client.py          client subclass for payload compatibility
+    ├── operation_state.py integer-state compatibility and error descriptions
     ├── entity.py          base entity, device info, command helper
     ├── sensor.py
     ├── binary_sensor.py
@@ -91,9 +136,10 @@ Delivered separately as front-end files:
  
 ### Known limitations
  
-* The library validates responses strictly. A value it doesn't know, such as an
-  unexpected operation state or cleaning mode, causes an update failure that
-  names the field in the log.
+* The library still validates other response fields strictly. An unexpected
+  cleaning mode or a malformed non-integer operation state causes an update
+  failure that names the field in the log. Unrecognized integer operation
+  states are preserved as described above.
 * Cleaning mode follows the earlier PrimeAutomation interpretation (a separate
   manual flag, otherwise cat or time activation). The library names the modes
   differently, so this mapping is unconfirmed.
