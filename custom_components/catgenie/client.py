@@ -31,6 +31,8 @@ def _schedule_entry(entry: Any) -> dict[str, Any]:
 
 def _normalize_thing(thing: dict[str, Any]) -> dict[str, Any]:
     """Fix known payload quirks in one device before validation."""
+    if thing.get("name") is None:
+        thing["name"] = "CatGenie A.I."
     configuration = thing.get("configuration")
     if isinstance(configuration, dict):
         schedule = configuration.get("schedule")
